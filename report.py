@@ -1,22 +1,59 @@
 import hashlib
 import logging
-import datetime
-import pytz
+import smtplib
+from email.header import Header
+from email.mime.text import MIMEText
+from email.utils import formataddr
+
 import cv2
 import easyocr
 import requests_html
 
 from log import config_logging
 import os
-os.environ['TZ'] = 'Asia/Shanghai'
+def mail(smtp_host,smtp_port,smtp_username,smtp_password,subject,content,my_user):
+    print(smtp_host)
+    ret = True
+    try:
+        msg = MIMEText(content, 'html', 'utf-8')
+        msg['From'] = formataddr(["河海大学自动打卡系统", smtp_username])  # 括号里的对应发件人邮箱昵称、发件人邮箱账号
+        msg['To'] = my_user  # 括号里的对应收件人邮箱昵称、收件人邮箱账号
+        msg['Subject'] = subject  # 邮件的主题，也可以说是标题
 
+        server = smtplib.SMTP_SSL(smtp_host, smtp_port)  # 发件人邮箱中的SMTP服务器，端口是25
+        server.login(smtp_username, smtp_password)  # 括号中对应的是发件人邮箱账号、邮箱密码
+        server.sendmail(smtp_username, [my_user, ], msg.as_string())  # 括号中对应的是发件人邮箱账号、收件人邮箱账号、发送邮件
+        server.quit()  # 关闭连接
+    except Exception:  # 如果 try 中的语句没有执行，则会执行下面的 ret=False
+        ret = False
+    return ret
 def main():
     username = os.environ.get("username")
-    if username == None:
+    if not username:
         raise Exception("未在Github Environments中配置用户名")
     password = os.environ.get("password")
-    if username == None:
+    if not password:
         raise Exception("未在Github Environments中配置密码")
+    needSend = True
+    email = os.environ.get("email")
+    if not email:
+        needSend = False
+    sender = os.environ.get("sender")
+    smtp_host = ""
+    smtp_port = 465
+    smtp_username = ""
+    smtp_password = ""
+    if not sender:
+        needSend = False
+    else:
+        sender_info = sender.split(" ")
+        if len(sender_info) != 4:
+            logging.fatal("smtp服务信息解析失败")
+            exit(1)
+        smtp_host = sender_info[0]
+        smtp_port = sender_info[1]
+        smtp_username = sender_info[2]
+        smtp_password = sender_info[3]
     '''
     # 配置日志输出和表单模板，初始化请求会话
     '''
@@ -72,7 +109,7 @@ def main():
         logging.info("开始处理验证码")
         img = cv2.imread("vcode.aspx", 1)
         im_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        ret, im_inv = cv2.threshold(im_gray, 210, 255, cv2.THRESH_BINARY_INV)
+        _, im_inv = cv2.threshold(im_gray, 210, 255, cv2.THRESH_BINARY_INV)
         im = cv2.resize(im_inv, (0, 0), fx=5, fy=5, interpolation=cv2.INTER_NEAREST)
         cv2.imwrite("vcode.png", im)
 
@@ -114,7 +151,6 @@ def main():
     '''
     add_form['__EVENTTARGET'] = 'dcbc'  # 修改为databc
     #add_form['__EVENTTARGET'] = 'databc'
-    add_form['tbrq'] = datetime.datetime.now(pytz.timezone('PRC')).strftime('%Y-%#m-%#d')
 
     '''
     # 打卡
@@ -125,12 +161,21 @@ def main():
     # 获取打卡结果
     '''
     result = jkdk.html.xpath('//*[@id="cw"]')[0].attrs["value"]
-    if ("成功" in result) or ("已存在" in result):
-        logging.info("打卡成功")
+    if "成功" in result:
+        logging.info("打卡成功[首次]")
+        content = ""
         for key, value in log_template.items():
-            logging.info(value + ":" + jkdk.html.xpath('//*[@id="' + key + '"]')[0].attrs["value"])
-
+            # logging.info(value + ":" + jkdk.html.xpath('//*[@id="' + key + '"]')[0].attrs["value"])
+            content += value + ":" + jkdk.html.xpath('//*[@id="' + key + '"]')[0].attrs["value"]+"<br/>"
+        if needSend:
+            mail(smtp_host,smtp_port,smtp_username,smtp_password,Header("今日打卡成功", 'utf-8').encode(), content,email)
+    elif "已存在" in result:
+        logging.info("打卡成功[非首次]")
+        # for key, value in log_template.items():
+        #     logging.info(value + ":" + jkdk.html.xpath('//*[@id="' + key + '"]')[0].attrs["value"])
     else:
+        if needSend:
+            mail(smtp_host,smtp_port,smtp_username,smtp_password,Header("今日打卡失败", 'utf-8').encode(), "打卡失败，服务器返回：" + result, email)
         logging.fatal("打卡失败，服务器返回：" + result)
 
 
