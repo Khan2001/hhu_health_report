@@ -7,7 +7,7 @@
 如需基于信息门户和E河海打卡接口的自动打卡系统请前往 2.x 分支
 
 ## 使用方法
-1.首先请将本项目Fork到自己用户下
+1.首先请将本项目Fork到自己用户下。
 
 2.在Settings > Secrets中添加名称为USERNAME和PASSWORD的secrets，分别填写奥蓝系统用户名和密码
 
